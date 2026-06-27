@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reef Monitor</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#06121f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Reef">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<style>
+  :root{
+    --abyss:#06121f;
+    --abyss-2:#0c2032;
+    --line:#173145;
+    --cyan:#3fe0d0;
+    --cyan-dim:#1c6f68;
+    --amber:#f2a23c;
+    --amber-bg:#3a2410;
+    --ink:#e7f4f5;
+    --muted:#7da3b0;
+    --faint:#4d7180;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--abyss);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  body{max-width:480px;margin:0 auto;
+    padding:calc(env(safe-area-inset-top) + 18px) 18px calc(env(safe-area-inset-bottom) + 28px)}
+  .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}
+  .brand{display:flex;align-items:center;gap:9px;font-size:15px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);font-weight:600}
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--cyan);
+    box-shadow:0 0 10px var(--cyan)}
+  .brand.offline .dot{background:var(--faint);box-shadow:none}
+  .clock{font-variant-numeric:tabular-nums;color:var(--faint);font-size:13px}
+
+  .readout{background:var(--abyss-2);border:1px solid var(--line);border-radius:20px;
+    padding:26px 22px 22px;text-align:center;position:relative;overflow:hidden}
+  .readout .label{font-size:12px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:6px}
+  .temp{font-variant-numeric:tabular-nums;font-weight:600;line-height:.95;
+    color:var(--cyan);font-size:84px;text-shadow:0 0 24px rgba(63,224,208,.25)}
+  .temp .deg{font-size:34px;color:var(--cyan-dim);vertical-align:top;margin-left:4px}
+  .target{margin-top:10px;font-size:13px;color:var(--faint)}
+
+  .tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+  .tile{background:var(--abyss-2);border:1px solid var(--line);border-radius:16px;
+    padding:16px 16px 15px}
+  .tile .t{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+    margin-bottom:9px}
+  .tile .v{display:flex;align-items:center;gap:9px;font-size:19px;font-weight:600}
+  .pip{width:11px;height:11px;border-radius:50%;background:var(--faint);flex:none}
+  .tile.on{border-color:#5a3b18;background:var(--amber-bg)}
+  .tile.on .v{color:var(--amber)}
+  .tile.on .pip{background:var(--amber);box-shadow:0 0 10px var(--amber);
+    animation:pulse 1.6s ease-in-out infinite}
+  .tile.off .v{color:var(--muted)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @media (prefers-reduced-motion:reduce){.tile.on .pip{animation:none}}
+
+  .chartcard{background:var(--abyss-2);border:1px solid var(--line);border-radius:18px;
+    padding:16px 14px 10px;margin-top:14px}
+  .chartcard .h{display:flex;align-items:baseline;justify-content:space-between;
+    padding:0 4px 10px}
+  .chartcard .h .t{font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted)}
+  .chartcard .h .r{font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .wrap{position:relative;height:200px}
+
+  .banner{display:none;margin-top:14px;padding:13px 15px;border-radius:14px;
+    background:#2a1216;border:1px solid #5e2a2f;color:#f0a8ad;font-size:14px;
+    line-height:1.45}
+  body.stale .banner{display:block}
+
+  .foot{display:flex;align-items:center;justify-content:space-between;margin-top:18px;
+    padding:0 4px;color:var(--faint);font-size:12px}
+  .foot button{background:none;border:none;color:var(--muted);font:inherit;
+    cursor:pointer;display:flex;align-items:center;gap:6px}
+  .foot button:active{color:var(--cyan)}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="brand" id="brand"><span class="dot"></span>Akvarijum</div>
+    <div class="clock" id="clock">—</div>
+  </div>
+
+  <div class="readout">
+    <div class="label">Temperatura vode</div>
+    <div class="temp" id="temp">—<span class="deg">°C</span></div>
+    <div class="target">ciljni opseg 24.5 – 27.5 °C</div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile off" id="fanTile">
+      <div class="t">Ventilatori</div>
+      <div class="v"><span class="pip"></span><span id="fanText">—</span></div>
+    </div>
+    <div class="tile off" id="trendTile">
+      <div class="t">Min / max 24h</div>
+      <div class="v" style="font-size:16px;color:var(--ink)"><span id="minmax">—</span></div>
+    </div>
+  </div>
+
+  <div class="chartcard">
+    <div class="h"><span class="t">Poslednja 24h</span><span class="r" id="now">—</span></div>
+    <div class="wrap"><canvas id="chart"></canvas></div>
+  </div>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="foot">
+    <span id="updated">osvežavanje…</span>
+    <button id="refresh"><span>Osveži</span></button>
+  </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const TARGET_LO = 24.5, TARGET_HI = 27.5, STALE_MS = 3*60*1000;
+let chart;
+
+const band = {
+  id:'band',
+  beforeDraw(c){
+    const {ctx, chartArea:a, scales:{y}} = c;
+    if(!a) return;
+    const top = y.getPixelForValue(TARGET_HI), bot = y.getPixelForValue(TARGET_LO);
+    ctx.save();
+    ctx.fillStyle = 'rgba(63,224,208,0.07)';
+    ctx.fillRect(a.left, Math.max(top,a.top), a.right-a.left, Math.min(bot,a.bottom)-Math.max(top,a.top));
+    ctx.restore();
+  }
+};
+
+function fmtClock(d){return d.toLocaleTimeString('sr-RS',{hour:'2-digit',minute:'2-digit'});}
+function ago(ms){
+  const s=Math.round(ms/1000);
+  if(s<60) return `pre ${s} s`;
+  const m=Math.round(s/60);
+  if(m<60) return `pre ${m} min`;
+  return `pre ${Math.round(m/60)} h`;
+}
+
+function buildChart(series){
+  const pts = series.map(p=>({x:p.t, y:p.v}));
+  const labels = pts.map(p=>fmtClock(new Date(p.x)));
+  const data = pts.map(p=>p.y);
+  if(chart){chart.data.labels=labels; chart.data.datasets[0].data=data; chart.update('none'); return;}
+  const ctx = document.getElementById('chart');
+  chart = new Chart(ctx,{
+    type:'line',
+    data:{labels, datasets:[{
+      data, borderColor:'#3fe0d0', borderWidth:2,
+      pointRadius:0, tension:.35, fill:true,
+      backgroundColor:(c)=>{const {ctx,chartArea}=c.chart; if(!chartArea) return 'transparent';
+        const g=ctx.createLinearGradient(0,chartArea.top,0,chartArea.bottom);
+        g.addColorStop(0,'rgba(63,224,208,0.18)'); g.addColorStop(1,'rgba(63,224,208,0)'); return g;}
+    }]},
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:false,
+      interaction:{intersect:false, mode:'index'},
+      plugins:{legend:{display:false}, tooltip:{
+        backgroundColor:'#0c2032', borderColor:'#173145', borderWidth:1,
+        titleColor:'#7da3b0', bodyColor:'#e7f4f5', displayColors:false,
+        callbacks:{label:(i)=>`${i.parsed.y.toFixed(1)} °C`}
+      }},
+      scales:{
+        x:{grid:{display:false}, ticks:{color:'#4d7180', maxTicksLimit:6, font:{size:11}}},
+        y:{grid:{color:'#13283a'}, ticks:{color:'#4d7180', font:{size:11},
+          callback:(v)=>v+'°'}, suggestedMin:23, suggestedMax:29}
+      }
+    },
+    plugins:[band]
+  });
+}
+
+async function load(){
+  try{
+    const r = await fetch('/api/state', {cache:'no-store'});
+    const {state, series} = await r.json();
+    document.getElementById('clock').textContent = fmtClock(new Date());
+
+    if(!state){ markStale('Još nema podataka. Proveri da reef-push servis radi na Pi-ju.'); return; }
+
+    const age = Date.now() - state.ts;
+    document.getElementById('temp').innerHTML =
+      `${state.temp.toFixed(1)}<span class="deg">°C</span>`;
+
+    const fanOn = !!state.fan;
+    const ft = document.getElementById('fanTile');
+    ft.className = 'tile ' + (fanOn?'on':'off');
+    document.getElementById('fanText').textContent = fanOn?'Rade':'Miruju';
+
+    if(series && series.length){
+      buildChart(series);
+      const vals = series.map(p=>p.v);
+      const lo = Math.min(...vals), hi = Math.max(...vals);
+      document.getElementById('minmax').textContent = `${lo.toFixed(1)} / ${hi.toFixed(1)} °C`;
+      document.getElementById('now').textContent = `trenutno ${state.temp.toFixed(1)} °C`;
+    }
+
+    document.getElementById('updated').textContent = 'osveženo ' + ago(age);
+    if(age > STALE_MS){
+      markStale(`Pi nije poslao podatak ${ago(age)}. Prikazana temperatura je možda zastarela.`);
+    } else {
+      document.body.classList.remove('stale');
+      document.getElementById('brand').classList.remove('offline');
+    }
+  }catch(e){
+    markStale('Ne mogu da dohvatim podatke. Proveri internet vezu.');
+  }
+}
+
+function markStale(msg){
+  document.body.classList.add('stale');
+  document.getElementById('brand').classList.add('offline');
+  document.getElementById('banner').textContent = msg;
+}
+
+document.getElementById('refresh').addEventListener('click', load);
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>
