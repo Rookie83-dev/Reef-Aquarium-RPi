@@ -10,9 +10,11 @@ export default async function handler(req, res) {
   const raw = await redis.zrange('reef:series', 0, -1);
 
   const series = (raw || []).map((m) => {
-    const str = String(m);
-    const idx = str.indexOf(':');
-    return { t: Number(str.slice(0, idx)), v: Number(str.slice(idx + 1)) };
+    const parts = String(m).split(':');
+    const t = Number(parts[0]);
+    const v = Number(parts[1]);
+    const f = parts.length > 2 ? Number(parts[2]) : 0;
+    return { t, v, f: f ? 1 : 0 };
   }).filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v));
 
   res.setHeader('Cache-Control', 'no-store');
