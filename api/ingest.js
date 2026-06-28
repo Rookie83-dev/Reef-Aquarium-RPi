@@ -24,7 +24,7 @@ export default async function handler(req, res) {
   const ts = Date.now();
 
   await redis.set('reef:state', { temp, fan, ts });
-  await redis.zadd('reef:series', { score: ts, member: `${ts}:${temp}` });
+  await redis.zadd('reef:series', { score: ts, member: `${ts}:${temp}:${fan}` });
   await redis.zremrangebyscore('reef:series', 0, ts - DAY_MS);
 
   return res.status(200).json({ ok: true, ts });
