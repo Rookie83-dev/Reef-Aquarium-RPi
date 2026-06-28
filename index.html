@@ -52,6 +52,9 @@
   .tile .t{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
     margin-bottom:9px}
   .tile .v{display:flex;align-items:center;gap:9px;font-size:19px;font-weight:600}
+  .tile .sub{margin-top:7px;font-size:12px;color:var(--faint);font-weight:500;
+    font-variant-numeric:tabular-nums}
+  .tile.on .sub{color:#c98a4e}
   .pip{width:11px;height:11px;border-radius:50%;background:var(--faint);flex:none}
   .tile.on{border-color:#5a3b18;background:var(--amber-bg)}
   .tile.on .v{color:var(--amber)}
@@ -68,6 +71,10 @@
   .chartcard .h .t{font-size:12px;letter-spacing:.14em;text-transform:uppercase;
     color:var(--muted)}
   .chartcard .h .r{font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .legend{display:flex;align-items:center;gap:7px;padding:0 4px 8px;
+    font-size:11px;color:var(--faint)}
+  .legend .sw{width:16px;height:5px;border-radius:3px;background:var(--amber);
+    box-shadow:0 0 6px rgba(242,162,60,.6);flex:none}
   .wrap{position:relative;height:200px}
 
   .banner{display:none;margin-top:14px;padding:13px 15px;border-radius:14px;
@@ -98,6 +105,7 @@
     <div class="tile off" id="fanTile">
       <div class="t">Ventilatori</div>
       <div class="v"><span class="pip"></span><span id="fanText">—</span></div>
+      <div class="sub" id="fanSub">danas: —</div>
     </div>
     <div class="tile off" id="trendTile">
       <div class="t">Min / max 24h</div>
@@ -107,6 +115,7 @@
 
   <div class="chartcard">
     <div class="h"><span class="t">Poslednja 24h</span><span class="r" id="now">—</span></div>
+    <div class="legend"><span class="sw"></span>žuta traka na dnu = kuleri rade</div>
     <div class="wrap"><canvas id="chart"></canvas></div>
   </div>
 
@@ -135,6 +144,56 @@ const band = {
   }
 };
 
+// fan activity as a clear strip along the bottom edge of the chart
+const fanBands = {
+  id:'fanBands',
+  afterDatasetsDraw(c){
+    const ranges = c.$fanRanges;
+    const {ctx, chartArea:a, scales:{x}} = c;
+    if(!a) return;
+    const stripH = 5, y = a.bottom - stripH;
+    // faint track so the strip area reads as a timeline even when empty
+    ctx.save();
+    ctx.fillStyle = 'rgba(125,163,176,0.10)';
+    ctx.fillRect(a.left, y, a.right-a.left, stripH);
+    if(ranges && ranges.length){
+      ctx.fillStyle = 'rgba(242,162,60,0.95)';
+      ctx.shadowColor = 'rgba(242,162,60,0.6)'; ctx.shadowBlur = 6;
+      for(const [s,e] of ranges){
+        const x1 = x.getPixelForValue(s);
+        const x2 = x.getPixelForValue(e);
+        ctx.fillRect(x1, y, Math.max(x2-x1, 2), stripH);
+      }
+    }
+    ctx.restore();
+  }
+};
+
+// from the series, find index ranges where fan was on, count starts, sum runtime
+function fanStats(series){
+  const ranges = [];
+  let count = 0, runtimeMs = 0, start = -1, prev = 0;
+  for(let i=0;i<series.length;i++){
+    const f = series[i].f;
+    if(f===1 && prev===0){ count++; start = i; }
+    if(f===0 && prev===1 && start>=0){ ranges.push([start, i]); start = -1; }
+    if(f===1 && i>0){
+      const dt = series[i].t - series[i-1].t;
+      if(dt>0 && dt < 5*60*1000) runtimeMs += dt;  // ignore gaps (Pi offline)
+    }
+    prev = f;
+  }
+  if(start>=0) ranges.push([start, series.length-1]);  // still on at the end
+  return { ranges, count, runtimeMs };
+}
+
+function fmtRuntime(ms){
+  const min = Math.round(ms/60000);
+  if(min < 60) return `${min} min`;
+  const h = Math.floor(min/60), m = min%60;
+  return m ? `${h}h ${m}min` : `${h}h`;
+}
+
 function fmtClock(d){return d.toLocaleTimeString('sr-RS',{hour:'2-digit',minute:'2-digit'});}
 function ago(ms){
   const s=Math.round(ms/1000);
@@ -148,7 +207,11 @@ function buildChart(series){
   const pts = series.map(p=>({x:p.t, y:p.v}));
   const labels = pts.map(p=>fmtClock(new Date(p.x)));
   const data = pts.map(p=>p.y);
-  if(chart){chart.data.labels=labels; chart.data.datasets[0].data=data; chart.update('none'); return;}
+  const { ranges } = fanStats(series);
+  if(chart){
+    chart.$fanRanges = ranges;
+    chart.data.labels=labels; chart.data.datasets[0].data=data; chart.update('none'); return;
+  }
   const ctx = document.getElementById('chart');
   chart = new Chart(ctx,{
     type:'line',
@@ -173,8 +236,9 @@ function buildChart(series){
           callback:(v)=>v+'°'}, suggestedMin:23, suggestedMax:29}
       }
     },
-    plugins:[band]
+    plugins:[band, fanBands]
   });
+  chart.$fanRanges = ranges;
 }
 
 async function load(){
@@ -200,6 +264,12 @@ async function load(){
       const lo = Math.min(...vals), hi = Math.max(...vals);
       document.getElementById('minmax').textContent = `${lo.toFixed(1)} / ${hi.toFixed(1)} °C`;
       document.getElementById('now').textContent = `trenutno ${state.temp.toFixed(1)} °C`;
+
+      const { count, runtimeMs } = fanStats(series);
+      const sub = count === 0
+        ? 'danas još nisu palili'
+        : `danas: ${count}× · ${fmtRuntime(runtimeMs)}`;
+      document.getElementById('fanSub').textContent = sub;
     }
 
     document.getElementById('updated').textContent = 'osveženo ' + ago(age);
